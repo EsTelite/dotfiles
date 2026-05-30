@@ -1,171 +1,269 @@
-# Creating a Basic Kiro Agent with Markdown & Skills
+# Kiro Agent & Skill Setup Guide
 
-This guide walks through creating a custom Kiro agent with markdown support and skills integration, based on the `python-dev-expert` example.
+Reference: 
+- [kiro.dev/docs/cli/custom-agents](https://kiro.dev/docs/cli/custom-agents.md)
+- [kiro.dev/docs/cli/skills](https://kiro.dev/docs/cli/skills.md)
+- [kiro.dev/llms.txt](https://kiro.dev/llms.txt)
 
-## Agent File Structure
+---
 
-Store agent configurations in `~/.kiro/agents/` (global) or `.kiro/agents/` (workspace).
+## Creating an Agent
 
+### Quick way (AI-assisted)
+
+From inside a Kiro chat session:
+
+```text
+> /agent create my-agent
 ```
-.kiro/agents/
-└── my-agent.json
+
+Or from the terminal:
+
+```bash
+kiro-cli agent create my-agent
 ```
 
-## Basic Agent Configuration
+Flags:
+
+| Flag | Description |
+|------|-------------|
+| `--directory workspace` | Save to `.kiro/agents/` (project-local) |
+| `--directory global` | Save to `~/.kiro/agents/` (default) |
+| `--description "..."` | Agent description (AI-assisted mode only) |
+| `--mcp-server name` | Include an MCP server (AI-assisted mode only) |
+| `--manual` | Open editor instead of AI generation |
+| `--from agent-name` | Base on an existing agent (implies `--manual`) |
+
+### Manual: agent config file
+
+Agents are JSON files in `~/.kiro/agents/` (global) or `.kiro/agents/` (workspace). The filename (without `.json`) becomes the agent name.
 
 ```json
 {
   "name": "my-agent",
-  "description": "Brief description of what this agent does",
-  "prompt": "Detailed instructions for the agent's behavior and capabilities",
-  "allowedTools": ["fs_read", "fs_write", "execute_bash"],
+  "description": "What this agent does",
+  "prompt": "You are a specialist in...",
+  "model": "claude-sonnet-4",
+  "tools": ["read", "write", "shell"],
+  "allowedTools": ["read"],
   "toolsSettings": {
-    "execute_bash": {
+    "shell": {
       "autoAllowReadonly": true
     }
   },
   "resources": [
     "file://README.md",
-    "skill://.kiro/skills/*/SKILL.md",
-    "skill://~/.kiro/skills/*/SKILL.md"
+    "skill://.kiro/skills/**/SKILL.md",
+    "skill://~/.kiro/skills/**/SKILL.md"
   ],
-  "welcomeMessage": "Custom greeting message"
+  "welcomeMessage": "Ready. What's the task?"
 }
 ```
 
-## Core Fields
+### Key config fields
 
-| Field | Purpose |
-|-------|---------|
-| `name` | Unique agent identifier (lowercase, hyphens allowed) |
-| `description` | What the agent does |
-| `prompt` | Detailed behavioral instructions (supports markdown) |
-| `allowedTools` | Array of tools the agent can use without prompting |
-| `toolsSettings` | Per-tool configuration (e.g., auto-allow readonly bash) |
-| `resources` | File and skill paths using `file://` and `skill://` URIs |
-| `welcomeMessage` | Initial message when agent starts |
+| Field | Description |
+|-------|-------------|
+| `name` | Agent identifier (lowercase, hyphens OK) |
+| `description` | Human-readable purpose |
+| `prompt` | System prompt — inline text or `file://./prompt.md` |
+| `model` | Model ID (e.g. `claude-sonnet-4`) |
+| `tools` | All tools the agent can potentially use. Use `"*"` for all. |
+| `allowedTools` | Tools that run without asking permission. Supports glob patterns. |
+| `toolsSettings` | Per-tool config (e.g. `allowedPaths`, `autoAllowReadonly`) |
+| `resources` | Files and skills loaded into context |
+| `mcpServers` | MCP servers the agent can access |
+| `hooks` | Commands run at lifecycle events |
+| `keyboardShortcut` | e.g. `"ctrl+a"` to switch to this agent |
+| `welcomeMessage` | Message shown when switching to this agent |
 
-## Tools Reference
+### tools vs allowedTools
 
-Available tools for `allowedTools`:
-- `fs_read` - Read files
-- `fs_write` - Write/create files
-- `execute_bash` - Run shell commands
-- `code` - Code intelligence (search symbols, AST parsing)
-- `grep` - Text pattern search
-- `glob` - File pattern matching
-- `web_fetch` - Fetch URL content
-- `web_search` - Search the web
-- `use_aws` - AWS CLI operations
-- `query-docs` - Query documentation
-- `knowledge` - Knowledge base operations
+- `tools` — declares what the agent *can* use
+- `allowedTools` — declares what runs *without prompting the user*
 
-## Resources
+```json
+"tools": ["read", "write", "shell", "@git"],
+"allowedTools": ["read", "@git/git_status", "@git/git_diff"]
+```
 
-### File Resources
-Load project files and documentation:
+Wildcard patterns are supported in `allowedTools`:
+
+```json
+"allowedTools": ["read", "@git/git_*", "@fetch"]
+```
+
+### Prompt from a file
+
+For long prompts, keep them in a separate file:
+
+```json
+"prompt": "file://./prompts/my-agent.md"
+```
+
+Path is relative to the agent config file.
+
+### Resources
+
 ```json
 "resources": [
   "file://README.md",
-  "file://.amazonq/rules/**/*.md",
-  "file://src/architecture.md"
+  "file://docs/**/*.md",
+  "skill://.kiro/skills/**/SKILL.md",
+  "skill://~/.kiro/skills/**/SKILL.md"
 ]
 ```
 
-### Skill Resources
-Enable skills from workspace and global locations:
+- `file://` — loaded into context at startup
+- `skill://` — only metadata loaded at startup; full content loaded on demand
+
+Custom agents do **not** load skills by default — you must add `skill://` URIs explicitly.
+
+### Hooks
+
+```json
+"hooks": {
+  "agentSpawn": [{ "command": "git status" }],
+  "preToolUse": [{
+    "matcher": "execute_bash",
+    "command": "echo \"$(date) - bash:\" >> /tmp/audit.log"
+  }],
+  "postToolUse": [{
+    "matcher": "fs_write",
+    "command": "npm run lint"
+  }]
+}
+```
+
+Available triggers: `agentSpawn`, `userPromptSubmit`, `preToolUse`, `postToolUse`, `stop`.
+
+### Using your agent
+
+Switch inside a session:
+
+```text
+> /agent swap
+```
+
+Or start directly:
+
+```bash
+kiro-cli --agent my-agent
+```
+
+---
+
+## Adding Skills to an Agent
+
+Skills extend agent capabilities. They're loaded from:
+
+- `.kiro/skills/` — workspace scope
+- `~/.kiro/skills/` — global scope
+
+### Enable skills in your agent config
+
+Add skill resources to the agent's `resources` field:
+
 ```json
 "resources": [
-  "skill://.kiro/skills/*/SKILL.md",
-  "skill://~/.kiro/skills/*/SKILL.md"
+  "file://README.md",
+  "skill://.kiro/skills/**/SKILL.md",
+  "skill://~/.kiro/skills/**/SKILL.md"
 ]
 ```
 
-Glob patterns (`*`) match all skill folders. Specific paths also work:
+Use `*/` glob patterns to load all skills, or reference specific skills:
+
 ```json
-"skill://.kiro/skills/pr-review/SKILL.md"
+"resources": [
+  "skill://.kiro/skills/pr-review/SKILL.md",
+  "skill://~/.kiro/skills/cdk-deploy/SKILL.md"
+]
 ```
 
-## Example: Python Developer Agent
+**Important:** The default agent loads skills automatically. Custom agents must explicitly add `skill://` URIs to `resources`.
+
+### How skills activate
+
+- **Automatically** — Kiro matches your request against the skill's description
+- **As slash command** — Type `/skill-name` to invoke directly
+
+View loaded skills:
+
+```text
+> /context show
+```
+
+---
+
+## File Locations Summary
+
+| Type | Workspace (project) | Global (user) |
+|------|---------------------|---------------|
+| Agents | `.kiro/agents/*.json` | `~/.kiro/agents/*.json` |
+| Skills | `.kiro/skills/<name>/SKILL.md` | `~/.kiro/skills/<name>/SKILL.md` |
+
+Workspace takes precedence over global when names conflict.
+
+---
+
+## Example: Python Dev Agent
 
 ```json
 {
   "name": "python-dev",
-  "description": "Expert Python developer for building and debugging Python projects",
-  "prompt": "You are an expert Python developer. Write clean, minimal code. Use `uv` for package management and work within virtual environments. When installing packages, use `uv pip install`. When creating environments, use `uv venv`.",
-  "allowedTools": ["fs_read", "fs_write", "execute_bash", "code"],
+  "description": "Expert Python developer",
+  "prompt": "You are an expert Python developer. Use `uv` for package management. Write clean, minimal code.",
+  "model": "claude-sonnet-4",
+  "tools": ["read", "write", "shell", "code"],
+  "allowedTools": ["read", "code"],
   "toolsSettings": {
-    "execute_bash": {
-      "autoAllowReadonly": true
-    }
+    "shell": { "autoAllowReadonly": true }
   },
   "resources": [
     "file://README.md",
-    "file://requirements.txt",
-    "skill://.kiro/skills/*/SKILL.md",
-    "skill://~/.kiro/skills/*/SKILL.md"
+    "skill://.kiro/skills/**/SKILL.md",
+    "skill://~/.kiro/skills/**/SKILL.md"
   ],
   "welcomeMessage": "Ready for Python development. What's the task?"
 }
 ```
 
-## Using Your Agent
+## Example: CDK Deploy Skill
 
-### Start a Session
-```bash
-kiro chat --agent my-agent
+```
+cdk-deploy/
+├── SKILL.md
+└── references/
+    └── stack-patterns.md
 ```
 
-### Invoke Skills
-Skills activate automatically when matched to your request, or manually:
-```
-> /skill-name arguments here
-```
+**SKILL.md:**
 
-View available skills:
-```
-> /context show
-```
+```markdown
+---
+name: cdk-deploy
+description: Deploy AWS CDK stacks. Use when deploying infrastructure, running cdk deploy, or troubleshooting CDK issues.
+---
 
-## Best Practices
+## Deployment workflow
 
-1. **Specific Prompts** - Write detailed behavioral instructions in the `prompt` field using markdown
-2. **Minimal Tools** - Only add tools to `allowedTools` that the agent needs
-3. **Smart Resources** - Include documentation and project files relevant to the agent's workflow
-4. **Glob Patterns** - Use `*/` to load all skills and adapt as new ones are added
-5. **Version Control** - Commit workspace agents (`.kiro/agents/`) to share with your team
+1. Run `cdk synth` to validate templates
+2. Run `cdk diff` to preview changes
+3. Run `cdk deploy` and review IAM changes
 
-## Common Patterns
-
-### Research Agent
-```json
-{
-  "allowedTools": ["fs_read", "web_fetch", "web_search", "grep"],
-  "resources": ["file://docs/**/*.md", "skill://~/.kiro/skills/*/SKILL.md"]
-}
+For environment-specific patterns, see `references/stack-patterns.md`.
 ```
 
-### Infrastructure Agent
-```json
-{
-  "allowedTools": ["fs_read", "fs_write", "execute_bash", "use_aws"],
-  "resources": ["file://terraform/**/*.tf", "skill://.kiro/skills/*/SKILL.md"]
-}
-```
-
-### Code Review Agent
-```json
-{
-  "allowedTools": ["fs_read", "code", "web_fetch"],
-  "resources": ["file://.kiro/skills/pr-review/SKILL.md"]
-}
-```
+---
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| Agent not found | Verify JSON is in `~/.kiro/agents/` or `.kiro/agents/` with `.json` extension |
-| Invalid JSON | Use a JSON validator; check commas and quotes |
-| Skills not loading | Confirm `skill://` URIs in `resources` field; verify SKILL.md exists in skill folder |
-| Tool not working | Check if tool is in `allowedTools` array |
+| Agent not found | Check JSON is in `~/.kiro/agents/` or `.kiro/agents/` with `.json` extension |
+| Invalid JSON | Validate JSON syntax; check commas and quotes |
+| Skills not loading in custom agent | Add `skill://` URIs to the agent's `resources` field |
+| Skill not activating | Make the description more specific with keywords matching your request |
+| Slash command not found | Verify folder name matches the skill `name` in frontmatter; check `/context show` |
+| Tool requires permission every time | Add it to `allowedTools` |
