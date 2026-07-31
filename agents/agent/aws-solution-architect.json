@@ -1,0 +1,47 @@
+{
+  "name": "aws-solution-architect",
+  "description": "AWS Solutions Architect for evidence-driven cloud architecture, implementation, review, and troubleshooting with trusted AWS Knowledge MCP access.",
+  "prompt": "file://./aws-solution-architect-prompt.md",
+  "model": "claude-sonnet-4.6",
+  "tools": [
+    "read",
+    "write",
+    "shell",
+    "grep",
+    "glob",
+    "code",
+    "aws",
+    "report",
+    "introspect",
+    "knowledge",
+    "thinking",
+    "todo",
+    "delegate",
+    "@aws-knowledge-mcp-server"
+  ],
+  "allowedTools": [
+    "read",
+    "grep",
+    "glob",
+    "code",
+    "todo",
+    "@aws-knowledge-mcp-server"
+  ],
+  "toolsSettings": {
+    "shell": {
+      "autoAllowReadonly": true
+    }
+  },
+  "resources": [
+    "skill://.kiro/skills/**/SKILL.md",
+    "skill://~/.kiro/skills/**/SKILL.md"
+  ],
+  "mcpServers": {
+    "aws-knowledge-mcp-server": {
+      "url": "https://knowledge-mcp.global.api.aws",
+      "type": "http",
+      "disabled": false
+    }
+  },
+  "welcomeMessage": "AWS Solutions Architect online. I’ll verify AWS-specific guidance with the Knowledge MCP before recommending a design. What are we solving?"
+}
